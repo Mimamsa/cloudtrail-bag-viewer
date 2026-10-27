@@ -1,0 +1,28 @@
+# 執行方式：在專案根目錄執行 doxygen Doxyfile。
+# Usage: run doxygen Doxyfile from the project root.
+# 將公開 API、私有解析細節與測試一起產生為可瀏覽的 HTML 文件。
+# Generate browsable HTML for public APIs, private parsing details, and tests.
+PROJECT_NAME           = "ROS-free PointCloud2 Bag Viewer"
+PROJECT_BRIEF          = "ROS1 bag parsing, voxel accumulation, odometry and visualization"
+OUTPUT_DIRECTORY       = build/doxygen
+INPUT                  = src tests README.md README.zh-TW.md
+FILE_PATTERNS          = *.hpp *.cpp *.md
+RECURSIVE              = YES
+INPUT_ENCODING         = UTF-8
+USE_MDFILE_AS_MAINPAGE  = README.md
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_ANON_NSPACES    = YES
+INTERNAL_DOCS          = YES
+SOURCE_BROWSER         = YES
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+GENERATE_HTML          = YES
+GENERATE_TREEVIEW      = YES
+GENERATE_LATEX         = NO
+HAVE_DOT               = NO
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = YES

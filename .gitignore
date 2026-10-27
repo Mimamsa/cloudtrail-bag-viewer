@@ -1,0 +1,11 @@
+# ROS bag recordings, including files still being recorded
+*.bag
+*.bag.active
+
+# Build outputs and backups (including build-before-rename)
+build/
+/build*/
+cmake-build*/
+
+# Exported point clouds
+*.ply
