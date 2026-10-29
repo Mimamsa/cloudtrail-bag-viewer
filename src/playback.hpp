@@ -73,6 +73,18 @@ public:
   void setRate(double wall, double rate) {
     reset(wall, targetTime(wall), rate);
   }
+  /**
+   * @brief 循環回起點，保留目前倍率；呼叫端應先重建第一幀地圖。
+   * @param wall 重建完成後的單調時間，秒。
+   * @param firstTime 第一幀的 bag 記錄時間，秒。
+   * @par English
+   * Restart a loop at the first frame while preserving the selected rate. Call after rebuilding
+   * the first-frame map so rebuilding time is excluded. Parameters are monotonic seconds after
+   * rebuilding and the first frame's bag recording time in seconds.
+   */
+  void restart(double wall, double firstTime) {
+    reset(wall, firstTime, multiplier);
+  }
   /** @brief 取得目前設定的播放倍率。 @return 正有限倍率。
    *
    * @par English

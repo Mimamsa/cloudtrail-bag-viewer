@@ -95,7 +95,7 @@ ctest --test-dir build --output-on-failure
   起始視角與重設視角皆保持既定 map 軸向。
 - Disable Previous in accumulated mode and enable it in single-frame mode, including programmatic switches such as loading/exporting the whole map. Keep mode-control synchronization centralized.
   不只處理 checkbox 的手動切換，也要涵蓋封鎖 signals 的程式內部切換。
-- Keep height, single-color, and intensity coloring available. Intensity contrast uses display-only P1/P99 statistics and logarithmic grayscale; skip unnecessary statistics in other color modes. Preserve playback sampling/throttling.
+- Keep height, single-color, and intensity coloring available. Intensity contrast uses display-only P1/P99 statistics and logarithmic contrast with a blue–teal–yellow–red palette; skip unnecessary statistics in other color modes. Preserve playback sampling/throttling.
   強度上色不改資料；高度上色不應額外計算整份地圖的強度百分位數。
 - GUI visualization, screenshots, and benchmarks require a working desktop/OpenGL context. Headless inspection/export must finish before creating `QApplication`.
   保持無視窗功能可在沒有桌面的環境執行。

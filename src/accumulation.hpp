@@ -13,6 +13,7 @@
  */
 #pragma once
 #include "bag.hpp"
+#include "height.hpp"
 #include <array>
 #include <functional>
 #include <random>
@@ -129,6 +130,13 @@ public:
    */
   uint64_t size() const { return voxelCount; }
   /**
+   * @brief 完整體素中心的 Z 範圍，不受顯示取樣限制。
+   * @return 相機無關的高度統計唯讀參考。
+   * @par English
+   * Return camera-independent Z bounds of all voxel centers, independent of display sampling.
+   */
+  const HeightScale &heightRange() const { return heights; }
+  /**
    * @brief 逐格重建完整地圖的體素中心並呼叫 visitor。
    *
    * 遍歷所有佔用格，完全不受 sampleLimit 影響；雜湊遍歷次序不具空間排序意義。
@@ -174,6 +182,7 @@ public:
   double voxelSize() const { return leafSize; }
 
 private:
+  HeightScale heights; ///< 完整地圖高度統計。 EN: Complete-map height statistics.
   /**
    * @struct bag::VoxelGrid::Key
    * @brief 三個軸向的區塊索引；每個區塊容納八格。

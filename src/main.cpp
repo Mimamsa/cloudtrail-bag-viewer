@@ -151,8 +151,8 @@ public:
   ///< EN: Widget pixel position of the previous mouse event.
   bag::IntensityScale intensityScale; ///< 顯示用強度統計，不改寫原始資料。
   ///< EN: Display-only intensity statistics; source values remain unchanged.
-  int colorMode = 0; ///< 0 高度色、1 單色、2 反射強度灰階。
-  ///< EN: Color modes: 0 height, 1 single color, 2 reflectance grayscale.
+  int colorMode = 0; ///< 0 高度色、1 單色、2 反射強度彩色。
+  ///< EN: Color modes: 0 height, 1 single color, 2 reflectance color.
   bool playbackActive =
       false; ///< 播放時降低顯示取樣量以控制繪圖成本，暫停恢復完整顯示上限。
       ///< EN: Reduce display sampling while playing to bound drawing cost; restore the full display
@@ -282,17 +282,15 @@ public:
     glBegin(GL_POINTS);
     for (size_t i = 0; i < points().size(); i += stride) {
       auto p = points()[i];
-      float t = std::clamp((p.z - center.z()) / (radius * 2) + .5f, 0.f, 1.f);
+      float t = bag::heightColorScale.value(p.z);
       if (colorMode == 1)
         glColor3f(.4f, .85f, 1.f);
       else if (colorMode == 2) {
-        float brightness = .4f;
-        if (std::isfinite(p.intensity) && intensityScale.finiteCount) {
-          float normalized = intensityScale.value(p.intensity);
-          brightness =
-              .15f + .85f * std::log1p(255.f * normalized) / std::log(256.f);
-        }
-        glColor3f(brightness, brightness, brightness);
+        const auto rgb = bag::intensityColor(
+            std::isfinite(p.intensity) && intensityScale.finiteCount
+                ? intensityScale.value(p.intensity)
+                : std::numeric_limits<float>::quiet_NaN());
+        glColor3f(rgb[0], rgb[1], rgb[2]);
       } else
         glColor3f(t, .25f + .65f * (1 - std::abs(2 * t - 1)), 1 - t);
       glVertex3f(p.x, p.y, p.z);
@@ -404,7 +402,7 @@ public:
       painter.setPen(Qt::white);
       painter.drawText(16, 84,
                        intensityScale.finiteCount
-                           ? QString("Intensity: dark = low, bright = high | "
+                           ? QString("Intensity: blue (low) -> teal -> yellow -> red (high) | "
                                      "P1-P99: %1 .. %2 | missing = gray")
                                  .arg(intensityScale.low)
                                  .arg(intensityScale.high)
@@ -910,6 +908,8 @@ int main(int argc, char **argv) {
     layout->addLayout(mapRow);
     auto row = new QHBoxLayout;
     auto play = new QPushButton("Play");
+    auto loop = new QCheckBox("Loop playback");
+    loop->setChecked(true);
     auto prev = new QPushButton("Previous");
     /** @brief 同步模式相關按鈕；累計模式停用 Previous，單幀模式恢復啟用。
      *
@@ -923,7 +923,7 @@ int main(int argc, char **argv) {
     auto reset = new QPushButton("Fit view");
     auto follow = new QCheckBox("Fit every frame");
     auto color = new QComboBox;
-    color->addItems({"Height color", "Single color", "Intensity (grayscale)"});
+    color->addItems({"Height color", "Single color", "Intensity (color)"});
     color->setCurrentIndex(o.color);
     auto speed = new QComboBox;
     for (double rate : playbackRates)
@@ -932,7 +932,7 @@ int main(int argc, char **argv) {
         std::find(playbackRates.begin(), playbackRates.end(), o.initialRate) -
         playbackRates.begin()));
     for (auto w :
-         std::vector<QWidget *>{play, prev, next, reset, follow, color, speed})
+         std::vector<QWidget *>{play, prev, next, loop, reset, follow, color, speed})
       row->addWidget(w);
     layout->addLayout(row);
     auto slider = new QSlider(Qt::Horizontal);
@@ -954,6 +954,8 @@ int main(int argc, char **argv) {
     bag::PlaybackClock playbackClock;
     double lastPresentation = 0, lastIntensityUpdate = -1e20, rateWallBase = 0,
            rateBagBase = 0;
+    double loopBagAdvance = 0; ///< 循環跨越的 bag 秒數，供效能量測使用。
+    ///< EN: Bag seconds crossed by loops, used by benchmark measurements.
     bool playing = false;
     bool failed = false;
     /**
@@ -1042,19 +1044,22 @@ int main(int argc, char **argv) {
     /**
      * @brief 依絕對播放時間與 30 Hz 畫面上限排程，將已消耗處理時間扣除。
      *
-     * 到最後一幀自動停止；等待毫秒數限制在 Qt timer 可接受的 int 範圍。
+     * 最後一幀依 checkbox 決定停止或延後循環，避免單幀資料造成忙迴圈。
      *
      * @par English
      * Schedule against absolute playback time and a 30 Hz display cap, deducting time already
-     * spent processing. Stop at the final frame and clamp milliseconds to the Qt timer's int
-     * range.
+     * spent processing. At the final frame, stop or defer looping according to the checkbox;
+     * deferred callbacks also prevent a busy loop for single-frame recordings.
      */
     auto schedule = [&]() {
       if (!playing)
         return;
       size_t i = size_t(slider->value());
       if (i + 1 >= reader.frames.size()) {
-        stop();
+        if (loop->isChecked())
+          timer.start(34);
+        else
+          stop();
         return;
       }
       double now = wallSeconds();
@@ -1293,6 +1298,29 @@ int main(int argc, char **argv) {
         return;
       double now = wallSeconds();
       size_t current = size_t(slider->value());
+      if (current + 1 == reader.frames.size()) {
+        if (!loop->isChecked()) {
+          stop();
+          return;
+        }
+        // 後退定位會清除上一輪累計；讀取完成才錨定，維持所選倍率。
+        // EN: Backward seeking clears the previous map; anchor after loading at the selected rate.
+        {
+          QSignalBlocker block(slider);
+          slider->setValue(0);
+        }
+        loadFrame(0, false);
+        if (!playing)
+          return;
+        loopBagAdvance += reader.frames.back().time - reader.frames.front().time;
+        now = wallSeconds();
+        playbackClock.restart(now, reader.frames.front().time);
+        rateWallBase = lastPresentation = now;
+        rateBagBase = reader.frames.front().time;
+        showStatus();
+        schedule();
+        return;
+      }
       size_t target =
           std::max(current, playbackClock.dueFrame(reader.frames, now));
       if (target > current) {
@@ -1306,11 +1334,12 @@ int main(int argc, char **argv) {
       schedule();
     });
     /**
-     * @brief 速度變更時保持目標時間連續，重新錨定倍率並更新排程。
+     * @brief 變更循環選項時重新排程；速度變更保持目標時間連續。
      *
      * @par English
-     * Re-anchor the rate without discontinuity in target time, then update scheduling.
+     * Reschedule when looping changes; rate changes re-anchor without a target-time discontinuity.
      */
+    QObject::connect(loop, &QCheckBox::toggled, [&](bool) { schedule(); });
     QObject::connect(
         speed, QOverload<int>::of(&QComboBox::currentIndexChanged), [&](int) {
           if (playing) {
@@ -1351,16 +1380,16 @@ int main(int argc, char **argv) {
     QObject::connect(reset, &QPushButton::clicked,
                      [&]() { view->resetCamera(); });
     /**
-     * @brief 切換高度、單色或反射強度灰階並要求下一次重繪。
+     * @brief 切換高度、單色或反射強度彩色並要求下一次重繪。
      *
      * @par English
-     * Select height, single-color, or reflectance grayscale rendering and request a repaint.
+     * Select height, single-color, or reflectance color rendering and request a repaint.
      */
     QObject::connect(color, QOverload<int>::of(&QComboBox::currentIndexChanged),
                      [&](int i) {
                        view->colorMode = i;
                        refreshIntensity(true);
-                       view->update();
+                   view->update();
                      });
     /**
      * @brief 僅切換光達位置／朝向 overlay，不改變讀檔或時間配對。
@@ -1389,17 +1418,19 @@ int main(int argc, char **argv) {
     view->resetCamera();
     if (o.autoPlay)
       QTimer::singleShot(200, [&]() {
-        const size_t startFrame = size_t(slider->value());
         const uint64_t firstPaint = view->paintCount;
         QElapsedTimer measured;
         measured.start();
         play->click();
+        const size_t startFrame = size_t(slider->value());
+        const double startLoopAdvance = loopBagAdvance;
         if (o.benchmarkSeconds > 0)
           QTimer::singleShot(
               int(std::ceil(o.benchmarkSeconds * 1000)),
-              [&, startFrame, firstPaint, measured]() {
+              [&, startFrame, startLoopAdvance, firstPaint, measured]() {
                 double wall = measured.nsecsElapsed() * 1e-9;
-                double advanced = reader.frames[size_t(slider->value())].time -
+                double advanced = loopBagAdvance - startLoopAdvance +
+                                  reader.frames[size_t(slider->value())].time -
                                   reader.frames[startFrame].time;
                 std::cout << std::fixed << std::setprecision(3)
                           << "Playback benchmark: requested=" << o.initialRate

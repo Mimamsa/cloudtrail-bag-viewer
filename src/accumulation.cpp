@@ -310,6 +310,7 @@ void VoxelGrid::add(const Cloud &cloud) {
     Point center{float((double(x) + .5) * leafSize),
                  float((double(y) + .5) * leafSize),
                  float((double(z) + .5) * leafSize), intensity};
+    heights.add(center.z);
     // Uniform reservoir sample: display memory is bounded independently of map
     // size.
     // 中文：均勻的 reservoir 取樣讓顯示記憶體保持有界，不隨完整地圖 大小增加。
@@ -365,6 +366,7 @@ void VoxelGrid::forEachPoint(const std::function<void(Point)> &visitor) const {
  * Clear the map and counters, and reset the fixed random sequence for reproducible rebuilds.
  */
 void VoxelGrid::clear() {
+  heights = {};
   blocks.clear();
   samples.clear();
   frameId.clear();

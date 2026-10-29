@@ -305,6 +305,37 @@ void checkBinaryPly(const std::filesystem::path &path,
  * Reject mismatched frames, and permit a new frame after clear().
  */
 void checkVoxels() {
+  // 中文：固定色帶不受資料範圍影響；檢查邊界、中點與超出範圍的截斷。
+  // EN: Fixed colors are data-independent; verify endpoints, midpoint, and out-of-range clamping.
+  check(bag::heightColorScale.value(-30) == 0);
+  check(bag::heightColorScale.value(10) == 1);
+  check(bag::heightColorScale.value(-10) == .5f);
+  check(bag::heightColorScale.value(-100) == 0);
+  check(bag::heightColorScale.value(100) == 1);
+  check(bag::heightColorScale.value(0) == .75f);
+  // EN: Full-map bounds survive display sampling and reset on backward rebuilds.
+  // 中文：完整地圖範圍不受顯示取樣影響，清除重建時重設。
+  bag::HeightScale heights;
+  check(heights.value(0) == .5f);
+  heights.add(-2); heights.add(6);
+  check(heights.value(-2) == 0 && heights.value(6) == 1);
+  check(heights.value(0) == .25f && heights.value(100) == 1);
+  bag::HeightScale flat;
+  flat.add(3); flat.add(std::numeric_limits<double>::quiet_NaN());
+  check(flat.value(3) == .5f);
+  bag::VoxelGrid bounded(.05, 1);
+  bag::Cloud tall;
+  tall.frame = "map";
+  tall.points = {{0, 0, -2}, {0, 0, 6}, {0, 0, 1}};
+  bounded.add(tall);
+  check(bounded.points().size() == 1);
+  check(std::abs(bounded.heightRange().minimum + 1.975) < 1e-6);
+  check(std::abs(bounded.heightRange().maximum - 6.025) < 1e-6);
+  bounded.clear();
+  check(!bounded.heightRange().valid);
+  tall.points = {{0, 0, 3}};
+  bounded.add(tall);
+  check(bounded.heightRange().value(3.025) == .5f);
   bag::VoxelGrid grid;
   bag::Cloud c;
   c.frame = "map";
@@ -473,6 +504,22 @@ void checkPlayback() {
   check(clock.dueFrame(irregular, 0) == 2 &&
         clock.dueFrame(irregular, .59) == 2 &&
         clock.dueFrame(irregular, .61) == 3);
+  // 循環不繼承上輪逾期時間，並保留變更後倍率；亦涵蓋單幀時間軸。
+  // EN: Loops discard previous lateness, preserve changed rates, and support one-frame timelines.
+  clock.reset(0, 1000, 16);
+  for (int cycle = 1; cycle <= 3; ++cycle) {
+    const double wall = cycle * 20.;
+    check(clock.dueFrame(frames, wall) == frames.size() - 1);
+    clock.restart(wall, frames.front().time);
+    check(clock.dueFrame(frames, wall) == 0);
+    check(clock.dueFrame(frames, wall + .5) == 80 && clock.rate() == 16);
+  }
+  clock.setRate(61, 8);
+  clock.restart(70, frames.front().time);
+  check(clock.dueFrame(frames, 70.5) == 40 && clock.rate() == 8);
+  std::vector<bag::Frame> single{{0, 0, 1000}};
+  clock.restart(80, single.front().time);
+  check(clock.dueFrame(single, 80) == 0 && clock.dueFrame(single, 81) == 0);
   bool rejected = false;
   try {
     clock.reset(0, 0, 0);
@@ -497,7 +544,7 @@ void checkPlayback() {
  *
  * @test 八種強度型別、大小端、缺值、非有限強度、不合法欄位偏移。
  * @test 同格保留第一點強度；區塊內亂序插入的強度仍與座標對應。
- * @test P1/P99 上色範圍、常數範圍及灰階轉換不更動原始強度。
+ * @test P1/P99 上色範圍、常數範圍及彩色轉換不更動原始強度。
  *
  * @par English
  * Test intensity decoding, voxel intensity ordering, display normalization, and PLY retention.
@@ -507,6 +554,23 @@ void checkPlayback() {
  * values unchanged.
  */
 void checkIntensity() {
+  // 中文：驗證調色盤端點、截斷、連續性與缺值，避免回到灰階或產生無效 RGB。
+  // EN: Check palette endpoints, clamping, continuity, and missing values for valid colored RGB.
+  const auto lowColor = bag::intensityColor(0);
+  const auto highColor = bag::intensityColor(1);
+  check(lowColor[2] > lowColor[0] && highColor[0] > highColor[2]);
+  check(bag::intensityColor(-1) == lowColor && bag::intensityColor(2) == highColor);
+  const auto missingColor = bag::intensityColor(std::nanf(""));
+  check(missingColor[0] == .4f && missingColor[1] == .4f && missingColor[2] == .4f);
+  auto previous = lowColor;
+  for (int i = 1; i <= 1000; ++i) {
+    const auto rgb = bag::intensityColor(i / 1000.f);
+    for (size_t c = 0; c < rgb.size(); ++c) {
+      check(std::isfinite(rgb[c]) && rgb[c] >= 0 && rgb[c] <= 1);
+      check(std::abs(rgb[c] - previous[c]) < .15f);
+    }
+    previous = rgb;
+  }
   for (bool big : {false, true})
     for (uint8_t type = 1; type <= 8; ++type) {
       auto c = bag::decode(message(big, type));

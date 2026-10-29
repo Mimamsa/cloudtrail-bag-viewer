@@ -9,19 +9,20 @@
 #pragma once
 #include "bag.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
 namespace bag {
 /**
  * @brief 以有限強度的第 1／99 百分位數估計顯示對比範圍。
  *
- * 只用於畫面亮度，避免少量異常高值壓暗整張點雲。超出範圍者顯示為端點亮度，
+ * 只用於畫面色彩，避免少量異常高值壓暗整張點雲。超出範圍者顯示為端點顏色，
  * Point::intensity 與 PLY 儲存值完全不變。每次更新暫用至多 N 個 float（可由
  * maxSamples 限制），並於返回時釋放。
  *
  * @par English
  * Estimate display contrast from the 1st and 99th percentiles of finite intensities. This
- * affects brightness only and prevents a few unusually high values from darkening the entire
- * cloud. Values outside the range use endpoint brightness; Point::intensity and PLY values
+ * affects display color only and prevents a few unusually high values from darkening the entire
+ * cloud. Values outside the range use endpoint colors; Point::intensity and PLY values
  * remain unchanged. An update temporarily stores at most N floats, optionally capped by
  * maxSamples, and releases them before returning.
  */
@@ -32,10 +33,10 @@ struct IntensityScale {
   ///< EN: Minimum finite source intensity.
   float maximum = 0;      ///< 原始有限強度最大值。
   ///< EN: Maximum finite source intensity.
-  float low = 0;          ///< 第 1 百分位數的亮度下限。
-  ///< EN: Lower brightness bound at the 1st percentile.
-  float high = 0;         ///< 第 99 百分位數的亮度上限。
-  ///< EN: Upper brightness bound at the 99th percentile.
+  float low = 0;          ///< 第 1 百分位數的色彩範圍下限。
+  ///< EN: Lower color-range bound at the 1st percentile.
+  float high = 0;         ///< 第 99 百分位數的色彩範圍上限。
+  ///< EN: Upper color-range bound at the 99th percentile.
   /**
    * @brief 由目前顯示點重新計算強度統計，不保留輸入參考。
    * @param points 單幀或累計取樣點；NaN／Inf 強度不參與統計。
@@ -91,5 +92,31 @@ struct IntensityScale {
         std::clamp((double(intensity) - low) / (double(high) - low), 0., 1.));
   }
 };
+/**
+ * @brief 將線性正規化強度轉為深藍、青綠、黃、紅的連續彩色調色盤。
+ * @param normalized P1/P99 範圍內的線性位置；先截斷再採對數映射。
+ * @return RGB 各分量介於零與一；非有限輸入使用缺值灰色。
+ * @par English
+ * Map linearly normalized intensity through logarithmic contrast to a continuous dark-blue,
+ * teal, yellow, red palette. Clamp normalized before mapping. Return RGB components in [0,1];
+ * nonfinite input uses neutral missing-value gray. Source intensities are never modified.
+ */
+inline std::array<float, 3> intensityColor(float normalized) {
+  if (!std::isfinite(normalized))
+    return {.4f, .4f, .4f};
+  const float t = std::log1p(255.f * std::clamp(normalized, 0.f, 1.f)) /
+                  std::log(256.f);
+  constexpr std::array<std::array<float, 3>, 4> stops{{
+      {.05f, .10f, .45f}, {0.f, .75f, .65f},
+      {1.f, .90f, .15f}, {.90f, .10f, .05f}}};
+  const float position = t * float(stops.size() - 1);
+  const size_t index = std::min(size_t(position), stops.size() - 2);
+  const float fraction = position - float(index);
+  std::array<float, 3> rgb{};
+  for (size_t channel = 0; channel < rgb.size(); ++channel)
+    rgb[channel] = stops[index][channel] * (1 - fraction) +
+                   stops[index + 1][channel] * fraction;
+  return rgb;
+}
 } // namespace bag
 // 中文：bag 命名空間。

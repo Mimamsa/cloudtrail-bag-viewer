@@ -123,6 +123,7 @@ Viewer controls:
 | Right mouse drag | Pan the camera |
 | Mouse wheel | Zoom |
 | Play / Pause | Advance bag time using elapsed wall time and the selected rate, or pause |
+| Loop playback | Enabled by default; restart at frame 0 after the final frame. Uncheck to stop at the end. Accumulated mode rebuilds the map for each loop; the selected rate is preserved. |
 | Previous / Next | Previous/next frame; Previous is disabled in accumulated mode and enabled in single-frame mode |
 | Frame slider | Seek on release and accumulate through the selected frame |
 | LiDAR pose | Show the current LiDAR position in magenta and its orientation axes |
@@ -133,8 +134,10 @@ Viewer controls:
 | Export mode selector | 5 cm voxel centers: complete voxel map; All original XYZ + intensity: all original valid XYZ points and intensities |
 | Fit view | Fit the current cloud into the view |
 | Fit every frame | Refit the camera whenever the frame changes |
-| Height color / Single color / Intensity (grayscale) | Color by Z height, use a single color, or display reflectance intensity as grayscale |
+| Height color / Single color / Intensity (color) | Color by Z height, use a single color, or display reflectance intensity with a blue–teal–yellow–red palette |
 | 0.25x, 0.5x, 1x, 2x, 4x, 8x, 16x | Playback rate |
+
+Height colors use a fixed cloud-coordinate Z range of **−30 to 10 meters**, with `t = clamp((z + 30) / 40, 0, 1)`. Z ≤ −30 uses the blue endpoint; Z ≥ 10 uses the red endpoint. The same range applies to single-frame and accumulated modes, independent of cloud bounds, camera movement, rotation, zoom, and Fit view.
 
 The XYZ axes are red, green, and blue, respectively, and are located at the data origin. Accumulated mode retains a uniform reservoir sample of up to one million voxel centers for display by default; adjust this with `--max-points`. Original single frames use an evenly spaced stride when they exceed the display limit. During playback, drawing is temporarily limited to 200,000 points. Pausing restores the limit specified by `--max-points`. **Display limits do not reduce the complete voxel map or exported point count.**
 
@@ -187,17 +190,16 @@ Clouds can still be viewed when the odometry topic is missing. The stored odomet
 
 ## Intensity coloring and storage
 
-Select **Intensity (grayscale)** in the color selector, or choose the initial mode from the command line:
+Select **Intensity (color)** in the color selector, or choose the initial mode from the command line:
 
 ```bash
 ./build/bag_cloud_viewer 2026-09-15-00-36-37.bag --all --color intensity
 ```
 
-![Accumulated point cloud colored by reflectance intensity](docs/intensity_preview.png)
 
 - The decoder reads the scalar PointCloud2 field named `intensity`, supporting all eight PointField numeric types and both byte orders. Values are converted to float32 in memory and output. The test bag uses FLOAT32 at offset 32.
 - Single-frame mode uses each point's original intensity. The 5 cm accumulated map retains the intensity of the **first point** in each voxel, not an average or maximum. Display samples and complete exports use the same representative intensity for each voxel.
-- Contrast uses the 1st and 99th percentiles of the displayed data. During playback, these are estimated at most once every 0.2 seconds from at most 65,536 evenly spaced samples; pausing recalculates them from the complete display sample. Logarithmic grayscale makes lower intensities darker and higher intensities brighter. Colors saturate outside the displayed range, which is shown in the viewer. This affects coloring only: **exported values are not normalized, clipped, or rewritten**.
+- Contrast uses the 1st and 99th percentiles of the displayed data. During playback, these are estimated at most once every 0.2 seconds from at most 65,536 evenly spaced samples; pausing recalculates them from the complete display sample. Logarithmic contrast maps low to high intensities through dark blue, teal, yellow, and red. Colors saturate outside the displayed range, which is shown in the viewer. This affects coloring only: **exported values are not normalized, clipped, or rewritten**.
 - Missing intensity fields and NaN/Inf intensities do not remove otherwise valid XYZ points. Their intensity is stored as NaN and displayed in medium gray. If no finite intensity is available in the displayed data, the viewer shows a message.
 
 PLY supports additional scalar properties, so conversion to PCD is unnecessary. All newly exported single-frame ASCII, original binary, and voxel binary PLY files include:

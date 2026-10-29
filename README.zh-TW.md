@@ -123,6 +123,7 @@ ctest --test-dir build --output-on-failure
 | 滑鼠右鍵拖曳 | 平移視角 |
 | 滾輪 | 縮放 |
 | Play / Pause | 依實際經過時間與所選倍率推進 bag 時間／暫停 |
+| Loop playback | 預設勾選，最後一幀後回到第 0 幀繼續播放；取消勾選則在最後一幀停止。每輪重新建立累計地圖，並保留所選倍率。 |
 | Previous / Next | 前／後一幀；累計模式停用 Previous，切回單幀模式恢復 |
 | 下方滑桿 | 放開滑桿後跳到指定幀，累計到該幀 |
 | LiDAR pose | 顯示目前光達位置（洋紅色）與朝向座標軸 |
@@ -133,8 +134,10 @@ ctest --test-dir build --output-on-failure
 | 匯出模式選單 | 5 cm voxel centers：完整體素地圖；All original XYZ + intensity：全部原始有效 XYZ 與強度 |
 | Fit view | 讓目前點雲完整入鏡 |
 | Fit every frame | 每次換幀重新調整視角 |
-| Height color / Single color / Intensity (grayscale) | 依 Z 高度著色／單色／反射強度灰階 |
+| Height color / Single color / Intensity (color) | 依 Z 高度著色／單色／反射強度彩色 |
 | 0.25x、0.5x、1x、2x、4x、8x、16x | 播放速度 |
+
+高度上色固定使用點雲座標系的 **Z = −30 至 10 公尺**，計算方式為 `t = clamp((z + 30) / 40, 0, 1)`。Z ≤ −30 使用色帶的藍色端點，Z ≥ 10 使用紅色端點。單幀與累計模式皆使用相同固定範圍，不受點雲最大／最小值、相機平移、旋轉、縮放或 Fit view 影響。
 
 XYZ 軸以紅、綠、藍顯示，位於資料原點。累計點雲預設最多顯示 100 萬個體素中心，使用均勻 reservoir sampling 控制顯示記憶體；`--max-points` 可調整。原始單幀超過上限時採等間距抽樣。播放中暫時最多繪製 20 萬點，暫停後恢復 `--max-points` 指定的上限。**顯示上限不影響完整體素地圖與匯出點數**。
 
@@ -187,18 +190,17 @@ XYZ 軸以紅、綠、藍顯示，位於資料原點。累計點雲預設最多�
 
 ## 反射強度上色與儲存
 
-上色選單新增 **Intensity (grayscale)**。也可從命令列指定初始模式：
+上色選單新增 **Intensity (color)**。也可從命令列指定初始模式：
 
 ```bash
 ./build/bag_cloud_viewer 2026-09-15-00-36-37.bag --all --color intensity
 ```
 
-![依反射強度顯示的累計點雲](docs/intensity_preview.png)
 
 - 讀取 PointCloud2 中名為 `intensity` 的純量欄位，支援八種 PointField 數值型別與大小端序；在記憶體及輸出統一轉為 float32。此測試 bag 的欄位為 FLOAT32、offset 32。
 - 單幀模式使用該點原始強度；5 公分累計模式保留每格**第一個點**的強度，不取平均或最大值。同一個體素的顯示樣本與完整匯出使用相同代表強度。
-- 以目前顯示點的第 1／99 百分位數設定對比範圍（播放中最多每 0.2 秒從至多 65,536 個等距樣本估計；暫停時重新使用完整顯示資料），再以對數灰階顯示：強度低較暗、強度高較亮。超出範圍的顏色會飽和，畫面列出使用範圍；這只影響上色，**不會正規化、裁切或改寫匯出值**。
-- 沒有強度欄位或強度為 NaN／Inf 時，仍保留有效 XYZ，強度以 NaN 儲存並顯示為中間灰階。若整份顯示資料皆無有效強度，畫面會提示無強度可用。
+- 以目前顯示點的第 1／99 百分位數設定對比範圍（播放中最多每 0.2 秒從至多 65,536 個等距樣本估計；暫停時重新使用完整顯示資料），再以對數對比映射至彩色調色盤：由低至高依序為深藍、青綠、黃、紅。超出範圍的顏色會飽和，畫面列出使用範圍；這只影響上色，**不會正規化、裁切或改寫匯出值**。
+- 沒有強度欄位或強度為 NaN／Inf 時，仍保留有效 XYZ，強度以 NaN 儲存並顯示為中性灰色。若整份顯示資料皆無有效強度，畫面會提示無強度可用。
 
 PLY 可定義額外的純量屬性，因此不需改用 PCD。所有新匯出的單幀 ASCII、整包原始 binary 與體素 binary PLY 都包含：
 
@@ -254,7 +256,7 @@ binary 模式每點為 16 bytes，依序儲存 little-endian 的四個 float32�
 - 啟動時讀取 bag 的 record headers、connection metadata 與 index，不把整個 2.3 GB 檔案載入記憶體。讀取指定幀時才載入／解壓對應 chunk，快取一個 chunk。
 - 支援 `none`、`bz2`、標準 ROS LZ4 frame 壓縮；索引以 bag 記錄時間排序。
 - XYZ 依 PointField 名稱、offset 與 datatype 解碼，支援 PointField 的八種數值型別、大小端、`point_step` 與 `row_step` padding；過濾 NaN / Inf。不假設 XYZ 緊密排列或每點只有 12 bytes。
-- 累計與整包匯出要求所有訊息的 frame ID 一致；此測試資料為 `map`。不套用 TF，因此不同 frame ID 會回報錯誤。高度色與強度灰階均為顯示用顏色；intensity 會保留，未讀取 RGB。
+- 累計與整包匯出要求所有訊息的 frame ID 一致；此測試資料為 `map`。不套用 TF，因此不同 frame ID 會回報錯誤。高度色與強度彩色均為顯示用顏色；intensity 會保留，未讀取 RGB。
 - 需要已建立索引且正常結束寫入的 ROS1 bag v2.0；不支援 ROS2 `.db3` / MCAP 或損壞 bag 的修復。單一 chunk / record 的配置上限為 512 MiB。
 - 播放依 bag 記錄時間及實際經過時間排程，處理延遲時合併畫面更新；累計仍處理全部幀。`stamp` 是訊息內的 Header 時間，可能與 bag 記錄時間不同。
 
